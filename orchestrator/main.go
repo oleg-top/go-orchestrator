@@ -13,13 +13,14 @@ import (
 	"github.com/streadway/amqp"
 
 	"github.com/oleg-top/go-orchestrator/db/storage"
+	"github.com/oleg-top/go-orchestrator/serialization"
 )
 
 type Orchestrator struct {
 	Storage           *storage.Storage
 	Channel           *amqp.Channel
 	Router            *mux.Router
-	Timings           map[string]time.Duration
+	Timeouts          map[string]time.Duration
 	LastPingTimestamp map[uuid.UUID]time.Time
 }
 
@@ -121,13 +122,37 @@ func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 		log.Error("Error while parsing request body")
 		return
 	}
-	_, err := o.Storage.AddTask(request.Expression)
+	taskID, err := o.Storage.AddTask(request.Expression)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		log.Error("Error while inserting expression to db")
 		return
 	}
-	// TODO: push message to rabbitmq queue
+	q, err := o.Channel.QueueDeclare("tasks_queue", false, false, false, false, nil)
+	tm := serialization.TaskMessage{
+		ID:         taskID,
+		Expression: request.Expression,
+		Timeouts:   o.Timeouts,
+	}
+	serialized, err := serialization.Serialize[serialization.TaskMessage](tm)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error("Error while serializing task message")
+		return
+	}
+	err = o.Channel.Publish(
+		"",
+		q.Name,
+		false,
+		false,
+		amqp.Publishing{ContentType: "application/json", Body: serialized},
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error("Error while publishing task message")
+		return
+	}
+	log.Info("Successfully published task message")
 }
 
 func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request) {
@@ -187,20 +212,20 @@ func (o *Orchestrator) SetTimeouts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	o.Timings["add"] = time.Millisecond * time.Duration(request.Add)
-	o.Timings["sub"] = time.Millisecond * time.Duration(request.Sub)
-	o.Timings["mul"] = time.Millisecond * time.Duration(request.Mul)
-	o.Timings["div"] = time.Millisecond * time.Duration(request.Div)
+	o.Timeouts["add"] = time.Millisecond * time.Duration(request.Add)
+	o.Timeouts["sub"] = time.Millisecond * time.Duration(request.Sub)
+	o.Timeouts["mul"] = time.Millisecond * time.Duration(request.Mul)
+	o.Timeouts["div"] = time.Millisecond * time.Duration(request.Div)
 
 	w.WriteHeader(http.StatusOK)
 }
 
 func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
-		"add": o.Timings["add"].String(),
-		"sub": o.Timings["sub"].String(),
-		"mul": o.Timings["mul"].String(),
-		"div": o.Timings["div"].String(),
+		"add": o.Timeouts["add"].String(),
+		"sub": o.Timeouts["sub"].String(),
+		"mul": o.Timeouts["mul"].String(),
+		"div": o.Timeouts["div"].String(),
 	})
 }
 
@@ -248,7 +273,12 @@ func main() {
 	defer ch.Close()
 
 	orchestrator := NewOrchestrator(db, ch)
-
+	orchestrator.Timeouts = map[string]time.Duration{
+		"+": time.Second,
+		"-": time.Second,
+		"*": time.Second,
+		"/": time.Second,
+	}
 	if err != nil {
 		log.Fatal(err)
 		return
