@@ -6,16 +6,16 @@ import (
 )
 
 var (
-	AGENT_INACTIVE    = "inactive"
-	AGENT_ACTIVE      = "active"
-	AGENT_CALCULATING = "calculating"
-	TASK_COMPLETED    = "completed"
-	TASK_CALCULATING  = "calculating"
-	TASK_ACCEPTED     = "accepted"
+	StatusAgentInactive    = "inactive"
+	StatusAgentActive      = "active"
+	StatusAgentCalculating = "calculating"
+	StatusTaskCompleted    = "completed"
+	StatusTaskCalculating  = "calculating"
+	StatusTaskAccepted     = "accepted"
 )
 
 type Storage struct {
-	DB *sqlx.DB
+	db *sqlx.DB
 }
 
 type Agent struct {
@@ -29,13 +29,13 @@ type Task struct {
 	Status     string    `db:"status"`
 }
 
-func (s *Storage) addTask(expression, status string) (uuid.UUID, error) {
+func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
 	task := &Task{
 		ID:         uuid.New(),
 		Expression: expression,
-		Status:     TASK_ACCEPTED,
+		Status:     StatusTaskAccepted,
 	}
-	_, err := s.DB.Exec(
+	_, err := s.db.Exec(
 		"INSERT INTO tasks (id, expression, status) VALUES ($1, $2, $3)",
 		task.ID,
 		task.Expression,
@@ -47,41 +47,47 @@ func (s *Storage) addTask(expression, status string) (uuid.UUID, error) {
 	return task.ID, nil
 }
 
-func (s *Storage) getAllTasks() ([]Task, error) {
+func (s *Storage) GetAllTasks() ([]Task, error) {
 	var tasks []Task
-	err := s.DB.Select(&tasks, "SELECT * FROM tasks")
+	err := s.db.Select(&tasks, "SELECT * FROM tasks")
 	if err != nil {
 		return nil, err
 	}
 	return tasks, nil
 }
 
-func (s *Storage) addAgent() (uuid.UUID, error) {
+func (s *Storage) AddAgent() (uuid.UUID, error) {
 	agent := &Agent{
 		ID:     uuid.New(),
-		Status: AGENT_ACTIVE,
+		Status: StatusAgentActive,
 	}
 
-	_, err := s.DB.Exec("INSERT INTO agents (id, status) VALUES ($1, $2)", agent.ID, agent.Status)
+	_, err := s.db.Exec("INSERT INTO agents (id, status) VALUES ($1, $2)", agent.ID, agent.Status)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return agent.ID, nil
 }
 
-func (s *Storage) getAllAgents() ([]Agent, error) {
+func (s *Storage) GetAllAgents() ([]Agent, error) {
 	var agents []Agent
-	err := s.DB.Select(&agents, "SELECT * FROM agents")
+	err := s.db.Select(&agents, "SELECT * FROM agents")
 	if err != nil {
 		return nil, err
 	}
 	return agents, nil
 }
 
-func (s *Storage) updateAgents(id uuid.UUID, status string) error {
-	_, err := s.DB.Exec("UPDATE agents SET status=$1 WHERE id=$2", status, id)
+func (s *Storage) UpdateAgent(id uuid.UUID, status string) error {
+	_, err := s.db.Exec("UPDATE agents SET status=$1 WHERE id=$2", status, id)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func NewStorage(db *sqlx.DB) *Storage {
+	return &Storage{
+		db: db,
+	}
 }

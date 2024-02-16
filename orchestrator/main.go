@@ -11,19 +11,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
-)
 
-var (
-	AGENT_INACTIVE    = "inactive"
-	AGENT_ACTIVE      = "active"
-	AGENT_CALCULATING = "calculating"
-	TASK_COMPLETED    = "completed"
-	TASK_CALCULATING  = "calculating"
-	TASK_ACCEPTED     = "accepted"
+	"github.com/oleg-top/go-orchestrator/db/storage"
 )
 
 type Orchestrator struct {
-	DB                *sqlx.DB
+	Storage           *storage.Storage
 	Channel           *amqp.Channel
 	Router            *mux.Router
 	Timings           map[string]time.Duration
@@ -47,7 +40,7 @@ type Expression struct {
 
 func NewOrchestrator(db *sqlx.DB, ch *amqp.Channel) *Orchestrator {
 	orchestrator := &Orchestrator{
-		DB:                db,
+		Storage:           storage.NewStorage(db),
 		Channel:           ch,
 		Router:            mux.NewRouter(),
 		LastPingTimestamp: make(map[uuid.UUID]time.Time),
@@ -68,27 +61,28 @@ func (o *Orchestrator) setupRoutes() {
 }
 
 func (o *Orchestrator) addAgent(w http.ResponseWriter, r *http.Request) {
-	agent := &Agent{
-		ID:     uuid.New(),
-		Status: AGENT_ACTIVE,
-	}
-
-	_, err := o.DB.Exec("INSERT INTO agents (id, status) VALUES ($1, $2)", agent.ID, agent.Status)
+	id, err := o.Storage.AddAgent()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	o.LastPingTimestamp[agent.ID] = time.Now()
-	json.NewEncoder(w).Encode(map[string]string{"id": agent.ID.String()})
+	o.LastPingTimestamp[id] = time.Now()
+	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
 func (o *Orchestrator) getAllAgents(w http.ResponseWriter, r *http.Request) {
-	var agents []Agent
-	o.DB.Select(&agents, "SELECT * FROM agents")
-	err := json.NewEncoder(w).Encode(&agents)
+	agents, err := o.Storage.GetAllAgents()
 	if err != nil {
 		log.Fatal("Error while selecting all agents")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = json.NewEncoder(w).Encode(&agents)
+	if err != nil {
+		log.Fatal("Error while encoding json")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	} else {
 		log.Info("Successfully returned all agents slice")
 	}
@@ -104,9 +98,11 @@ func (o *Orchestrator) agentPing(w http.ResponseWriter, r *http.Request) {
 
 	o.LastPingTimestamp[agentID] = time.Now()
 
-	_, err = o.DB.Exec("UPDATE agents SET status=$1 WHERE id=$2", AGENT_ACTIVE, agentID)
+	err = o.Storage.UpdateAgent(agentID, storage.StatusAgentActive)
 	if err != nil {
 		log.Fatal("Error while updating agents")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	} else {
 		log.Info("Successfully updated agents")
 	}
@@ -125,17 +121,7 @@ func (o *Orchestrator) addExpression(w http.ResponseWriter, r *http.Request) {
 		log.Fatal("Error while parsing request body")
 		return
 	}
-	task := Task{
-		ID:         uuid.New(),
-		Expression: request.Expression,
-		Status:     TASK_ACCEPTED,
-	}
-	_, err := o.DB.Exec(
-		"INSERT INTO tasks (id, expression, status) VALUES ($1, $2, $3)",
-		task.ID,
-		task.Expression,
-		task.Status,
-	)
+	_, err := o.Storage.AddTask(request.Expression)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		log.Fatal("Error while inserting expression to db")
@@ -145,10 +131,11 @@ func (o *Orchestrator) addExpression(w http.ResponseWriter, r *http.Request) {
 }
 
 func (o *Orchestrator) getAllExpressions(w http.ResponseWriter, r *http.Request) {
-	var tasks []Task
-	err := o.DB.Select(&tasks, "SELECT * FROM tasks")
+	tasks, err := o.Storage.GetAllTasks()
 	if err != nil {
 		log.Fatal("Error while selecting all tasks")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	} else {
 		log.Info("Successfully selected all from tasks")
 	}
@@ -156,6 +143,8 @@ func (o *Orchestrator) getAllExpressions(w http.ResponseWriter, r *http.Request)
 	err = json.NewEncoder(w).Encode(&tasks)
 	if err != nil {
 		log.Fatal("Error while selecting all expressions")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	} else {
 		log.Info("Successfully returned all tasks")
 	}
@@ -172,11 +161,7 @@ func (o *Orchestrator) startHeartbeatCheck(duration time.Duration) {
 			for agentID, lastPingTime := range o.LastPingTimestamp {
 				if currentTime.Sub(lastPingTime) > duration {
 					log.Info("Agent is inactive: ", agentID.String())
-					_, err := o.DB.Exec(
-						"UPDATE agents SET status=$1 WHERE id=$2",
-						AGENT_INACTIVE,
-						agentID,
-					)
+					err := o.Storage.UpdateAgent(agentID, storage.StatusAgentInactive)
 					if err != nil {
 						log.Fatal("Error while updating agents table")
 					} else {
