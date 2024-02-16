@@ -45,22 +45,22 @@ func NewOrchestrator(db *sqlx.DB, ch *amqp.Channel) *Orchestrator {
 		Router:            mux.NewRouter(),
 		LastPingTimestamp: make(map[uuid.UUID]time.Time),
 	}
-	orchestrator.setupRoutes()
+	orchestrator.SetupRoutes()
 
 	return orchestrator
 }
 
-func (o *Orchestrator) setupRoutes() {
-	o.Router.HandleFunc("/agents", o.addAgent).Methods("POST")
-	o.Router.HandleFunc("/agents", o.getAllAgents).Methods("GET")
-	o.Router.HandleFunc("/agents/{id}/ping", o.agentPing).Methods("POST")
-	o.Router.HandleFunc("/expressions", o.addExpression).Methods("POST")
-	o.Router.HandleFunc("/expressions", o.getAllExpressions).Methods("GET")
-	o.Router.HandleFunc("/timeouts", o.setTimeouts).Methods("POST")
-	o.Router.HandleFunc("/timeouts", o.getTimeouts).Methods("GET")
+func (o *Orchestrator) SetupRoutes() {
+	o.Router.HandleFunc("/agents", o.AddAgent).Methods("POST")
+	o.Router.HandleFunc("/agents", o.GetAllAgents).Methods("GET")
+	o.Router.HandleFunc("/agents/{id}/ping", o.AgentPing).Methods("POST")
+	o.Router.HandleFunc("/expressions", o.AddExpression).Methods("POST")
+	o.Router.HandleFunc("/expressions", o.GetAllExpressions).Methods("GET")
+	o.Router.HandleFunc("/timeouts", o.SetTimeouts).Methods("POST")
+	o.Router.HandleFunc("/timeouts", o.GetTimeouts).Methods("GET")
 }
 
-func (o *Orchestrator) addAgent(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 	id, err := o.Storage.AddAgent()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -71,16 +71,16 @@ func (o *Orchestrator) addAgent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
-func (o *Orchestrator) getAllAgents(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) GetAllAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := o.Storage.GetAllAgents()
 	if err != nil {
-		log.Fatal("Error while selecting all agents")
+		log.Error("Error while selecting all agents")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	err = json.NewEncoder(w).Encode(&agents)
 	if err != nil {
-		log.Fatal("Error while encoding json")
+		log.Error("Error while encoding json")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -88,7 +88,7 @@ func (o *Orchestrator) getAllAgents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (o *Orchestrator) agentPing(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	agentIDStr := mux.Vars(r)["id"]
 	agentID, err := uuid.Parse(agentIDStr)
 	if err != nil {
@@ -100,7 +100,7 @@ func (o *Orchestrator) agentPing(w http.ResponseWriter, r *http.Request) {
 
 	err = o.Storage.UpdateAgent(agentID, storage.StatusAgentActive)
 	if err != nil {
-		log.Fatal("Error while updating agents")
+		log.Error("Error while updating agents")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -110,7 +110,7 @@ func (o *Orchestrator) agentPing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (o *Orchestrator) addExpression(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	type Request struct {
 		Expression string `json:"expression"`
 	}
@@ -118,22 +118,22 @@ func (o *Orchestrator) addExpression(w http.ResponseWriter, r *http.Request) {
 	var request Request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		log.Fatal("Error while parsing request body")
+		log.Error("Error while parsing request body")
 		return
 	}
 	_, err := o.Storage.AddTask(request.Expression)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		log.Fatal("Error while inserting expression to db")
+		log.Error("Error while inserting expression to db")
 		return
 	}
 	// TODO: push message to rabbitmq queue
 }
 
-func (o *Orchestrator) getAllExpressions(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request) {
 	tasks, err := o.Storage.GetAllTasks()
 	if err != nil {
-		log.Fatal("Error while selecting all tasks")
+		log.Error("Error while selecting all tasks")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -142,7 +142,7 @@ func (o *Orchestrator) getAllExpressions(w http.ResponseWriter, r *http.Request)
 
 	err = json.NewEncoder(w).Encode(&tasks)
 	if err != nil {
-		log.Fatal("Error while selecting all expressions")
+		log.Error("Error while selecting all expressions")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -150,7 +150,7 @@ func (o *Orchestrator) getAllExpressions(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (o *Orchestrator) startHeartbeatCheck(duration time.Duration) {
+func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
 
@@ -163,7 +163,7 @@ func (o *Orchestrator) startHeartbeatCheck(duration time.Duration) {
 					log.Info("Agent is inactive: ", agentID.String())
 					err := o.Storage.UpdateAgent(agentID, storage.StatusAgentInactive)
 					if err != nil {
-						log.Fatal("Error while updating agents table")
+						log.Error("Error while updating agents table")
 					} else {
 						log.Info("Successfully updated agents table")
 					}
@@ -173,7 +173,7 @@ func (o *Orchestrator) startHeartbeatCheck(duration time.Duration) {
 	}
 }
 
-func (o *Orchestrator) setTimeouts(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) SetTimeouts(w http.ResponseWriter, r *http.Request) {
 	type Request struct {
 		Add int `json:"add"`
 		Sub int `json:"sub"`
@@ -195,7 +195,7 @@ func (o *Orchestrator) setTimeouts(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (o *Orchestrator) getTimeouts(w http.ResponseWriter, r *http.Request) {
+func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"add": o.Timings["add"].String(),
 		"sub": o.Timings["sub"].String(),
@@ -204,9 +204,9 @@ func (o *Orchestrator) getTimeouts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (o *Orchestrator) startHTTPServer(duration time.Duration) {
+func (o *Orchestrator) StartHTTPServer(duration time.Duration) {
 	log.Info("Starting HTTP server...")
-	go o.startHeartbeatCheck(duration)
+	go o.StartHeartbeatCheck(duration)
 	http.ListenAndServe(":8080", o.Router)
 }
 
@@ -254,5 +254,5 @@ func main() {
 		return
 	}
 
-	orchestrator.startHTTPServer(30 * time.Second)
+	orchestrator.StartHTTPServer(30 * time.Second)
 }
