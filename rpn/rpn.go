@@ -2,6 +2,7 @@ package rpn
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -69,7 +70,7 @@ func (r *RPN) convertToRPN() error {
 	tokens := strings.Fields(r.SNExpression)
 
 	for i, token := range tokens {
-		if isNumeric(token) || (token == "-" && (i == 0 || !isNumeric(tokens[i-1]))) {
+		if IsNumeric(token) || (token == "-" && (i == 0 || !IsNumeric(tokens[i-1]))) {
 			output = append(output, token)
 		} else if token == "(" {
 			stack = append(stack, token)
@@ -97,21 +98,21 @@ func (r *RPN) convertToRPN() error {
 	return nil
 }
 
-func isOperator(char rune) bool {
+func IsOperator(char rune) bool {
 	return char == '+' || char == '-' || char == '*' || char == '/'
 }
 
-func isNumeric(s string) bool {
+func IsNumeric(s string) bool {
 	_, err := strconv.ParseFloat(s, 64)
 	return err == nil
 }
 
-// func main() {
-//	expression := "-3 - 1 * 3 * 123*"
-//	rpn, err := NewRPN(expression)
-//	if err != nil {
-//		fmt.Println(err.Error())
-//	} else {
-//		fmt.Println(rpn.RPNExpression)
-//	}
-//}
+func main() {
+	expression := "1 - 3 * 2"
+	rpn, err := NewRPN(expression)
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		fmt.Println(rpn.RPNExpression)
+	}
+}

@@ -4,21 +4,29 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 
+	"github.com/oleg-top/go-orchestrator/rpn"
 	"github.com/oleg-top/go-orchestrator/serialization"
 )
 
 type Agent struct {
 	ID      uuid.UUID
 	Channel *amqp.Channel
+	results map[string]string
+	mu      sync.Mutex
+	wg      sync.WaitGroup
 }
 
 func NewAgent(ch *amqp.Channel) *Agent {
-	return &Agent{Channel: ch}
+	return &Agent{Channel: ch, results: make(map[string]string)}
 }
 
 func (a *Agent) Registrate() error {
@@ -82,7 +90,11 @@ func (a *Agent) HandleMessages() {
 			if err != nil {
 				log.Error(err)
 			} else {
-				log.Info(tm.String())
+				log.Info("Got message: " + tm.String())
+				_, err := a.ResolveTask(tm)
+				if err != nil {
+					log.Error(err)
+				}
 			}
 		}
 	}()
@@ -92,7 +104,58 @@ func (a *Agent) HandleMessages() {
 }
 
 func (a *Agent) ResolveTask(tm serialization.TaskMessage) (int, error) {
-	return 0, nil
+	r, err := rpn.NewRPN(tm.Expression)
+	if err != nil {
+		return 0, err
+	}
+	tokens := strings.Fields(r.RPNExpression)
+	log.Info(tokens)
+	for len(tokens) != 1 {
+		for i := 2; i < len(tokens); i++ {
+			log.Info(i)
+			if (tokens[i] == "-" || tokens[i] == "+" || tokens[i] == "*" ||
+				tokens[i] == "/") && rpn.IsNumeric(tokens[i-1]) && rpn.IsNumeric(tokens[i-2]) {
+				exp := strings.Join(tokens[i-2:i+1], " ")
+				a.wg.Add(1)
+				go a.calculateOperation(exp, tm.Timeouts[tokens[i]])
+			}
+		}
+		a.wg.Wait()
+		s := strings.Join(tokens, " ")
+		log.Info(a.results)
+		for key, val := range a.results {
+			s = strings.Replace(s, key, val, 1)
+		}
+		tokens = strings.Fields(s)
+	}
+	res, _ := strconv.Atoi(tokens[0])
+	log.Info(tm.Expression + " -> " + tokens[0])
+	return res, nil
+}
+
+func (a *Agent) calculateOperation(exp string, timeout time.Duration) {
+	var res int
+	tokens := strings.Fields(exp)
+	log.Info(tokens)
+	first, _ := strconv.Atoi(tokens[0])
+	second, _ := strconv.Atoi(tokens[1])
+	operation := tokens[2]
+	switch operation {
+	case "+":
+		res = first + second
+	case "-":
+		res = first - second
+	case "*":
+		res = first * second
+	case "/":
+		res = first / second
+	}
+	time.Sleep(timeout)
+	a.mu.Lock()
+	a.results[exp] = strconv.Itoa(res)
+	a.mu.Unlock()
+	log.Info("goroutine: " + exp + "; result: " + strconv.Itoa(res))
+	a.wg.Done()
 }
 
 func main() {

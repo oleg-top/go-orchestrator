@@ -275,15 +275,15 @@ func main() {
 
 	orchestrator := NewOrchestrator(db, ch)
 	orchestrator.Timeouts = map[string]time.Duration{
-		"+": time.Second,
-		"-": time.Second,
-		"*": time.Second,
-		"/": time.Second,
+		"+": time.Millisecond,
+		"-": time.Millisecond,
+		"*": time.Millisecond,
+		"/": time.Millisecond,
 	}
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	orchestrator.StartHTTPServer(30 * time.Second)
+	orchestrator.StartHTTPServer(time.Minute)
 }
