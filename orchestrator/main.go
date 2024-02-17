@@ -24,10 +24,6 @@ type Orchestrator struct {
 	// LastPingTimestamp map[uuid.UUID]time.Time
 }
 
-type Expression struct {
-	expression string
-}
-
 func NewOrchestrator(db *sqlx.DB, ch *amqp.Channel) *Orchestrator {
 	orchestrator := &Orchestrator{
 		Storage: storage.NewStorage(db),
@@ -46,6 +42,7 @@ func (o *Orchestrator) SetupRoutes() {
 	o.Router.HandleFunc("/agents/{id}/ping", o.AgentPing).Methods("POST")
 	o.Router.HandleFunc("/expressions", o.AddExpression).Methods("POST")
 	o.Router.HandleFunc("/expressions", o.GetAllExpressions).Methods("GET")
+	o.Router.HandleFunc("/expressions/{id}", o.GetExpressionById).Methods("GET")
 	o.Router.HandleFunc("/timeouts", o.SetTimeouts).Methods("POST")
 	o.Router.HandleFunc("/timeouts", o.GetTimeouts).Methods("GET")
 }
@@ -59,20 +56,30 @@ func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 
 	log.Info("Adding agent: " + id.String())
 	// o.LastPingTimestamp[id] = time.Now()
-	o.Storage.UpdateAgentLastOnline(id, time.Now())
-	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
+	err = o.Storage.UpdateAgentLastOnline(id, time.Now())
+	if err != nil {
+		log.Error("Error while updating agent's last online: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
+	if err != nil {
+		log.Error("Error while encoding json: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (o *Orchestrator) GetAllAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := o.Storage.GetAllAgents()
 	if err != nil {
-		log.Error("Error while selecting all agents")
+		log.Error("Error while selecting all agents: " + err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	err = json.NewEncoder(w).Encode(&agents)
 	if err != nil {
-		log.Error("Error while encoding json")
+		log.Error("Error while encoding json: " + err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -85,6 +92,7 @@ func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	log.Info("Got ping from: " + agentIDStr)
 	agentID, err := uuid.Parse(agentIDStr)
 	if err != nil {
+		log.Error("Error while parsing uuid: " + err.Error())
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -92,9 +100,14 @@ func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	// o.LastPingTimestamp[agentID] = time.Now()
 
 	err = o.Storage.UpdateAgentStatus(agentID, storage.StatusAgentActive)
+	if err != nil {
+		log.Error("Error while updating agents: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	err = o.Storage.UpdateAgentLastOnline(agentID, time.Now())
 	if err != nil {
-		log.Error("Error while updating agents")
+		log.Error("Error while updating agents: " + err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -112,16 +125,27 @@ func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	var request Request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		log.Error("Error while parsing request body")
+		log.Error("Error while parsing request body: " + err.Error())
 		return
 	}
 	taskID, err := o.Storage.AddTask(request.Expression)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		log.Error("Error while inserting expression to db")
+		log.Error("Error while inserting expression to db: " + err.Error())
+		return
+	}
+	err = json.NewEncoder(w).Encode(map[string]string{"id": taskID.String()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error("Error while encoding json: " + err.Error())
 		return
 	}
 	q, err := o.Channel.QueueDeclare("tasks_queue", false, false, false, false, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Error("Error while encoding json: " + err.Error())
+		return
+	}
 	tm := serialization.TaskMessage{
 		ID:         taskID,
 		Expression: request.Expression,
@@ -130,7 +154,7 @@ func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	serialized, err := serialization.Serialize[serialization.TaskMessage](tm)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		log.Error("Error while serializing task message")
+		log.Error("Error while serializing task message: " + err.Error())
 		return
 	}
 	err = o.Channel.Publish(
@@ -142,16 +166,38 @@ func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		log.Error("Error while publishing task message")
+		log.Error("Error while publishing task message: " + err.Error())
 		return
 	}
 	log.Info("Successfully published task message")
 }
 
+func (o *Orchestrator) GetExpressionById(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	validID, err := uuid.Parse(id)
+	if err != nil {
+		log.Error("Error while parsing id: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tasks, err := o.Storage.GetTaskById(validID)
+	if err != nil {
+		log.Error("Error while getting expression by id: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = json.NewEncoder(w).Encode(&tasks)
+	if err != nil {
+		log.Error("Error while encoding task: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
 func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request) {
 	tasks, err := o.Storage.GetAllTasks()
 	if err != nil {
-		log.Error("Error while selecting all tasks")
+		log.Error("Error while selecting all tasks: " + err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -160,7 +206,7 @@ func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request)
 
 	err = json.NewEncoder(w).Encode(&tasks)
 	if err != nil {
-		log.Error("Error while selecting all expressions")
+		log.Error("Error while selecting all expressions: " + err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
@@ -186,7 +232,7 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 			for _, agent := range agents {
 				lastPingTime, err := time.Parse(time.RFC1123Z, agent.LastOnline)
 				if err != nil {
-					log.Error("Error while parsing agent's lastOnline")
+					log.Error("Error while parsing agent's lastOnline: " + err.Error())
 				}
 				log.Info(
 					"ID: " + agent.ID.String() + "; sub: " + currentTime.Sub(lastPingTime).
@@ -196,7 +242,7 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 					log.Info("Agent is inactive: ", agent.ID.String())
 					err := o.Storage.UpdateAgentStatus(agent.ID, storage.StatusAgentInactive)
 					if err != nil {
-						log.Error("Error while updating agents table")
+						log.Error("Error while updating agents table: " + err.Error())
 					} else {
 						log.Info("Successfully updated agents table")
 					}
@@ -218,7 +264,7 @@ func (o *Orchestrator) HandleResults() {
 		nil,
 	)
 	if err != nil {
-		log.Error("Failed to consume message")
+		log.Error("Failed to consume message: " + err.Error())
 	}
 
 	var forever chan struct{}
@@ -322,10 +368,10 @@ func main() {
 
 	orchestrator := NewOrchestrator(db, ch)
 	orchestrator.Timeouts = map[string]time.Duration{
-		"+": time.Millisecond,
-		"-": time.Millisecond,
-		"*": time.Millisecond,
-		"/": time.Millisecond,
+		"add": time.Millisecond,
+		"sub": time.Millisecond,
+		"mul": time.Millisecond,
+		"div": time.Millisecond,
 	}
 	if err != nil {
 		log.Fatal(err)

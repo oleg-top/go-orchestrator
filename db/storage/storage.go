@@ -62,6 +62,15 @@ func (s *Storage) UpdateTask(id uuid.UUID, res, status string) error {
 	return nil
 }
 
+func (s *Storage) GetTaskById(id uuid.UUID) ([]Task, error) {
+	var tasks []Task
+	err := s.db.Select(&tasks, "SELECT * FROM tasks WHERE id=$1", id)
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
 func (s *Storage) GetAllTasks() ([]Task, error) {
 	var tasks []Task
 	err := s.db.Select(&tasks, "SELECT * FROM tasks")
