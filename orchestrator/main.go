@@ -24,17 +24,6 @@ type Orchestrator struct {
 	LastPingTimestamp map[uuid.UUID]time.Time
 }
 
-type Agent struct {
-	ID     uuid.UUID `db:"id"`
-	Status string    `db:"status"`
-}
-
-type Task struct {
-	ID         uuid.UUID `db:"id"`
-	Expression string    `db:"expression"`
-	Status     string    `db:"status"`
-}
-
 type Expression struct {
 	expression string
 }
@@ -199,6 +188,43 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	}
 }
 
+func (o *Orchestrator) HandleResults() {
+	result_queue, _ := o.Channel.QueueDeclare("result_queue", false, false, false, false, nil)
+	msgs, err := o.Channel.Consume(
+		result_queue.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Error("Failed to consume message")
+	}
+
+	var forever chan struct{}
+
+	go func() {
+		for d := range msgs {
+			rm, err := serialization.Deserialize[serialization.ResultMessage](d.Body)
+			if err != nil {
+				log.Error(err)
+			} else {
+				log.Info("Got message: " + rm.String())
+				err := o.Storage.UpdateTask(rm.ID, rm.Result, rm.Status)
+				if err != nil {
+					log.Error("Error while updating task: " + err.Error())
+				} else {
+					log.Info("Successfully updated task: " + rm.ID.String())
+				}
+			}
+		}
+	}()
+
+	<-forever
+}
+
 func (o *Orchestrator) SetTimeouts(w http.ResponseWriter, r *http.Request) {
 	type Request struct {
 		Add int `json:"add"`
@@ -233,6 +259,7 @@ func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 func (o *Orchestrator) StartHTTPServer(duration time.Duration) {
 	log.Info("Starting HTTP server...")
 	go o.StartHeartbeatCheck(duration)
+	go o.HandleResults()
 	http.ListenAndServe(":8080", o.Router)
 }
 
@@ -240,6 +267,7 @@ var schema = `
 CREATE TABLE IF NOT EXISTS tasks (
 	id VARCHAR(128) PRIMARY KEY,
 	expression VARCHAR(128),
+  result VARCHAR(128),
 	status VARCHAR(128)
 );
 

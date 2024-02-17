@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 
+	"github.com/oleg-top/go-orchestrator/db/storage"
 	"github.com/oleg-top/go-orchestrator/rpn"
 	"github.com/oleg-top/go-orchestrator/serialization"
 )
@@ -67,9 +68,10 @@ func (a *Agent) Registrate() error {
 }
 
 func (a *Agent) HandleMessages() {
-	q, err := a.Channel.QueueDeclare("tasks_queue", false, false, false, false, nil)
+	tasks_queue, _ := a.Channel.QueueDeclare("tasks_queue", false, false, false, false, nil)
+	result_queue, _ := a.Channel.QueueDeclare("result_queue", false, false, false, false, nil)
 	msgs, err := a.Channel.Consume(
-		q.Name,
+		tasks_queue.Name,
 		"",
 		true,
 		false,
@@ -91,9 +93,34 @@ func (a *Agent) HandleMessages() {
 				log.Error(err)
 			} else {
 				log.Info("Got message: " + tm.String())
-				_, err := a.ResolveTask(tm)
+				res, err := a.ResolveTask(tm)
+				var status string
 				if err != nil {
+					status = storage.StatusTaskInvalid
 					log.Error(err)
+				} else {
+					status = storage.StatusTaskCompleted
+				}
+				rm := serialization.ResultMessage{
+					ID:     tm.ID,
+					Result: res,
+					Status: status,
+				}
+				serialized, err := serialization.Serialize[serialization.ResultMessage](rm)
+				if err != nil {
+					log.Error("Error while serializing task message")
+				}
+				err = a.Channel.Publish(
+					"",
+					result_queue.Name,
+					false,
+					false,
+					amqp.Publishing{ContentType: "application/json", Body: serialized},
+				)
+				if err != nil {
+					log.Error("Error while publishing task message")
+				} else {
+					log.Info("Published result message: " + tm.ID.String())
 				}
 			}
 		}
@@ -103,40 +130,46 @@ func (a *Agent) HandleMessages() {
 	<-forever
 }
 
-func (a *Agent) ResolveTask(tm serialization.TaskMessage) (int, error) {
+func (a *Agent) ResolveTask(tm serialization.TaskMessage) (string, error) {
 	r, err := rpn.NewRPN(tm.Expression)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	tokens := strings.Fields(r.RPNExpression)
-	log.Info(tokens)
 	for len(tokens) != 1 {
 		for i := 2; i < len(tokens); i++ {
-			log.Info(i)
 			if (tokens[i] == "-" || tokens[i] == "+" || tokens[i] == "*" ||
 				tokens[i] == "/") && rpn.IsNumeric(tokens[i-1]) && rpn.IsNumeric(tokens[i-2]) {
 				exp := strings.Join(tokens[i-2:i+1], " ")
 				a.wg.Add(1)
-				go a.calculateOperation(exp, tm.Timeouts[tokens[i]])
+				var timeout time.Duration
+				switch tokens[i] {
+				case "+":
+					timeout = tm.Timeouts["add"]
+				case "-":
+					timeout = tm.Timeouts["sub"]
+				case "*":
+					timeout = tm.Timeouts["mul"]
+				case "/":
+					timeout = tm.Timeouts["div"]
+				}
+				go a.calculateOperation(exp, timeout)
 			}
 		}
 		a.wg.Wait()
 		s := strings.Join(tokens, " ")
-		log.Info(a.results)
 		for key, val := range a.results {
 			s = strings.Replace(s, key, val, 1)
 		}
 		tokens = strings.Fields(s)
 	}
-	res, _ := strconv.Atoi(tokens[0])
 	log.Info(tm.Expression + " -> " + tokens[0])
-	return res, nil
+	return tokens[0], nil
 }
 
 func (a *Agent) calculateOperation(exp string, timeout time.Duration) {
 	var res int
 	tokens := strings.Fields(exp)
-	log.Info(tokens)
 	first, _ := strconv.Atoi(tokens[0])
 	second, _ := strconv.Atoi(tokens[1])
 	operation := tokens[2]

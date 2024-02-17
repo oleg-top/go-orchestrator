@@ -12,6 +12,7 @@ var (
 	StatusTaskCompleted    = "completed"
 	StatusTaskCalculating  = "calculating"
 	StatusTaskAccepted     = "accepted"
+	StatusTaskInvalid      = "invalid"
 )
 
 type Storage struct {
@@ -27,6 +28,7 @@ type Task struct {
 	ID         uuid.UUID `db:"id"`
 	Expression string    `db:"expression"`
 	Status     string    `db:"status"`
+	Result     string    `db:"result"`
 }
 
 func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
@@ -34,17 +36,27 @@ func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
 		ID:         uuid.New(),
 		Expression: expression,
 		Status:     StatusTaskAccepted,
+		Result:     "",
 	}
 	_, err := s.db.Exec(
-		"INSERT INTO tasks (id, expression, status) VALUES ($1, $2, $3)",
+		"INSERT INTO tasks (id, expression, status, result) VALUES ($1, $2, $3, $4)",
 		task.ID,
 		task.Expression,
 		task.Status,
+		task.Result,
 	)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return task.ID, nil
+}
+
+func (s *Storage) UpdateTask(id uuid.UUID, res, status string) error {
+	_, err := s.db.Exec("UPDATE tasks SET status=$1, result=$2 WHERE id=$3", status, res, id)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Storage) GetAllTasks() ([]Task, error) {

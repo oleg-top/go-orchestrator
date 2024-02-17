@@ -28,6 +28,16 @@ func (tm TaskMessage) String() string {
 	)
 }
 
+type ResultMessage struct {
+	ID     uuid.UUID `json:"id"`
+	Result string    `json:"result"`
+	Status string    `json:"status"`
+}
+
+func (rm ResultMessage) String() string {
+	return fmt.Sprintf("ID: %s; Result: %s; Status: %s", rm.ID, rm.Result, rm.Status)
+}
+
 func Serialize[T Message](msg T) ([]byte, error) {
 	var b bytes.Buffer
 	encoder := json.NewEncoder(&b)
