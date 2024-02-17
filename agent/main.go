@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -64,6 +65,7 @@ func (a *Agent) Registrate() error {
 	}
 	a.ID = validID
 	log.Info("Successfully registrated new agent: " + a.ID.String())
+	go a.SendHeartbeat(15 * time.Second)
 	return nil
 }
 
@@ -189,6 +191,32 @@ func (a *Agent) calculateOperation(exp string, timeout time.Duration) {
 	a.mu.Unlock()
 	log.Info("goroutine: " + exp + "; result: " + strconv.Itoa(res))
 	a.wg.Done()
+}
+
+func (a *Agent) SendHeartbeat(duration time.Duration) {
+	ticker := time.NewTicker(duration)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			req, err := http.NewRequest(
+				"POST",
+				fmt.Sprintf("http://localhost:8080/agents/%s/ping", a.ID.String()),
+				nil,
+			)
+			if err != nil {
+				log.Error("Error while creating hearbeat ping request: " + err.Error())
+			}
+			client := &http.Client{}
+			_, err = client.Do(req)
+			if err != nil {
+				log.Error("Error while sending hearbeat ping: " + err.Error())
+			} else {
+				log.Info("Successfully sent hearbeat ping: " + a.ID.String())
+			}
+		}
+	}
 }
 
 func main() {

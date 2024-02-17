@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"go.starlark.net/lib/time"
 )
 
 var (
@@ -20,8 +23,9 @@ type Storage struct {
 }
 
 type Agent struct {
-	ID     uuid.UUID `db:"id"`
-	Status string    `db:"status"`
+	ID         uuid.UUID `db:"id"`
+	Status     string    `db:"status"`
+	LastOnline string    `db:"last_online"`
 }
 
 type Task struct {
@@ -70,11 +74,18 @@ func (s *Storage) GetAllTasks() ([]Task, error) {
 
 func (s *Storage) AddAgent() (uuid.UUID, error) {
 	agent := &Agent{
-		ID:     uuid.New(),
-		Status: StatusAgentActive,
+		ID:         uuid.New(),
+		Status:     StatusAgentActive,
+		LastOnline: time.Now().Format("2006-01-02 15:04:05"),
 	}
+	// time format is yyyy-MM-dd HH:mm:ss
 
-	_, err := s.db.Exec("INSERT INTO agents (id, status) VALUES ($1, $2)", agent.ID, agent.Status)
+	_, err := s.db.Exec(
+		"INSERT INTO agents (id, status, last_online) VALUES ($1, $2, $3)",
+		agent.ID,
+		agent.Status,
+		agent.LastOnline,
+	)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -90,8 +101,17 @@ func (s *Storage) GetAllAgents() ([]Agent, error) {
 	return agents, nil
 }
 
-func (s *Storage) UpdateAgent(id uuid.UUID, status string) error {
+func (s *Storage) UpdateAgentStatus(id uuid.UUID, status string) error {
 	_, err := s.db.Exec("UPDATE agents SET status=$1 WHERE id=$2", status, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Storage) UpdateAgentLastOnline(id uuid.UUID, lastOnline time.Time) error {
+	lastOnlineString := lastOnline.Format("2006-01-02 15:04:05")
+	_, err := s.db.Exec("UPDATE agents SET last_online=$1 WHERE id=$2", lastOnlineString, id)
 	if err != nil {
 		return err
 	}

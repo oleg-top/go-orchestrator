@@ -81,6 +81,7 @@ func (o *Orchestrator) GetAllAgents(w http.ResponseWriter, r *http.Request) {
 
 func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	agentIDStr := mux.Vars(r)["id"]
+	log.Info("Got ping from: " + agentIDStr)
 	agentID, err := uuid.Parse(agentIDStr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -89,13 +90,13 @@ func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 
 	o.LastPingTimestamp[agentID] = time.Now()
 
-	err = o.Storage.UpdateAgent(agentID, storage.StatusAgentActive)
+	err = o.Storage.UpdateAgentStatus(agentID, storage.StatusAgentActive)
 	if err != nil {
 		log.Error("Error while updating agents")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else {
-		log.Info("Successfully updated agents")
+		log.Info("Successfully updated agent: " + agentIDStr)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -174,9 +175,12 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 		case <-ticker.C:
 			currentTime := time.Now()
 			for agentID, lastPingTime := range o.LastPingTimestamp {
+				log.Info(
+					"ID: " + agentID.String() + "; sub: " + currentTime.Sub(lastPingTime).String(),
+				)
 				if currentTime.Sub(lastPingTime) > duration {
 					log.Info("Agent is inactive: ", agentID.String())
-					err := o.Storage.UpdateAgent(agentID, storage.StatusAgentInactive)
+					err := o.Storage.UpdateAgentStatus(agentID, storage.StatusAgentInactive)
 					if err != nil {
 						log.Error("Error while updating agents table")
 					} else {
@@ -273,7 +277,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE TABLE IF NOT EXISTS agents (
 	id VARCHAR(128) PRIMARY KEY,
-	status VARCHAR(128)
+	status VARCHAR(128),
+  last_online VARCHAR(128)
 );
 `
 
@@ -313,5 +318,5 @@ func main() {
 		return
 	}
 
-	orchestrator.StartHTTPServer(time.Minute)
+	orchestrator.StartHTTPServer(30 * time.Second)
 }
