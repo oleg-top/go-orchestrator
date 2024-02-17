@@ -68,6 +68,7 @@ func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("Adding agent: " + id.String())
 	o.LastPingTimestamp[id] = time.Now()
 	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
