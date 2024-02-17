@@ -17,11 +17,11 @@ import (
 )
 
 type Orchestrator struct {
-	Storage           *storage.Storage
-	Channel           *amqp.Channel
-	Router            *mux.Router
-	Timeouts          map[string]time.Duration
-	LastPingTimestamp map[uuid.UUID]time.Time
+	Storage  *storage.Storage
+	Channel  *amqp.Channel
+	Router   *mux.Router
+	Timeouts map[string]time.Duration
+	// LastPingTimestamp map[uuid.UUID]time.Time
 }
 
 type Expression struct {
@@ -30,10 +30,10 @@ type Expression struct {
 
 func NewOrchestrator(db *sqlx.DB, ch *amqp.Channel) *Orchestrator {
 	orchestrator := &Orchestrator{
-		Storage:           storage.NewStorage(db),
-		Channel:           ch,
-		Router:            mux.NewRouter(),
-		LastPingTimestamp: make(map[uuid.UUID]time.Time),
+		Storage: storage.NewStorage(db),
+		Channel: ch,
+		Router:  mux.NewRouter(),
+		// LastPingTimestamp: make(map[uuid.UUID]time.Time),
 	}
 	orchestrator.SetupRoutes()
 
@@ -58,7 +58,8 @@ func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info("Adding agent: " + id.String())
-	o.LastPingTimestamp[id] = time.Now()
+	// o.LastPingTimestamp[id] = time.Now()
+	o.Storage.UpdateAgentLastOnline(id, time.Now())
 	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
@@ -88,9 +89,10 @@ func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	o.LastPingTimestamp[agentID] = time.Now()
+	// o.LastPingTimestamp[agentID] = time.Now()
 
 	err = o.Storage.UpdateAgentStatus(agentID, storage.StatusAgentActive)
+	err = o.Storage.UpdateAgentLastOnline(agentID, time.Now())
 	if err != nil {
 		log.Error("Error while updating agents")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -170,17 +172,29 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
 
+	var agents []storage.Agent
+	var err error
+
 	for {
 		select {
 		case <-ticker.C:
+			agents, err = o.Storage.GetAllAgents()
+			if err != nil {
+				log.Error("Error while getting all agents for heartbeat: " + err.Error())
+			}
 			currentTime := time.Now()
-			for agentID, lastPingTime := range o.LastPingTimestamp {
+			for _, agent := range agents {
+				lastPingTime, err := time.Parse(time.RFC1123Z, agent.LastOnline)
+				if err != nil {
+					log.Error("Error while parsing agent's lastOnline")
+				}
 				log.Info(
-					"ID: " + agentID.String() + "; sub: " + currentTime.Sub(lastPingTime).String(),
+					"ID: " + agent.ID.String() + "; sub: " + currentTime.Sub(lastPingTime).
+						String(),
 				)
 				if currentTime.Sub(lastPingTime) > duration {
-					log.Info("Agent is inactive: ", agentID.String())
-					err := o.Storage.UpdateAgentStatus(agentID, storage.StatusAgentInactive)
+					log.Info("Agent is inactive: ", agent.ID.String())
+					err := o.Storage.UpdateAgentStatus(agent.ID, storage.StatusAgentInactive)
 					if err != nil {
 						log.Error("Error while updating agents table")
 					} else {

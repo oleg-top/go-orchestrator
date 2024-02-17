@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"go.starlark.net/lib/time"
 )
 
 var (
@@ -76,7 +75,7 @@ func (s *Storage) AddAgent() (uuid.UUID, error) {
 	agent := &Agent{
 		ID:         uuid.New(),
 		Status:     StatusAgentActive,
-		LastOnline: time.Now().Format("2006-01-02 15:04:05"),
+		LastOnline: time.Now().Format(time.RFC1123Z),
 	}
 	// time format is yyyy-MM-dd HH:mm:ss
 
@@ -110,7 +109,7 @@ func (s *Storage) UpdateAgentStatus(id uuid.UUID, status string) error {
 }
 
 func (s *Storage) UpdateAgentLastOnline(id uuid.UUID, lastOnline time.Time) error {
-	lastOnlineString := lastOnline.Format("2006-01-02 15:04:05")
+	lastOnlineString := lastOnline.Format(time.RFC1123Z)
 	_, err := s.db.Exec("UPDATE agents SET last_online=$1 WHERE id=$2", lastOnlineString, id)
 	if err != nil {
 		return err
