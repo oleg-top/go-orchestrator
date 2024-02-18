@@ -9,7 +9,11 @@
 docker-compose up -d
 ```
 После этой команды в фоновом режиме запустится **RabbitMQ**.
-*Важно!**
+*Важно!*
+Не забудьте выключить docker-compose. Это можно сделать следующей командой:
+```bash
+docker-compose down
+```
 Для запуска оркестратора нужно написать
 ```bash
 go run orchestrator/main.go
