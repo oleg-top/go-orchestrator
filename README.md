@@ -72,4 +72,4 @@ go run agent/main.go
 ### Сереализация
 В RabbitMQ можно передовать только массивы байтов, поэтому я сделал package serialization, для сереализации и десериализации структур сообщений. При помощи интерфейса и дженериков я избавился от лишнего дублирования вышеназванных функций
 ### Примерная схема работы приложения
-![IMG_1FEBE1B8EC1A-1](https://github.com/oleg-top/go-orchestrator/assets/68245949/cb7e744c-66d5-4554-add9-5cf3ba09762d)
+![IMG_6A65A23A2BD4-1](https://github.com/oleg-top/go-orchestrator/assets/68245949/c1589eff-fecc-49e5-bbcb-29ea4f245e5b)
