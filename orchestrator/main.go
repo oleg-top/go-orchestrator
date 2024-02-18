@@ -252,6 +252,45 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	}
 }
 
+func (o *Orchestrator) HandleCalculatingStatuses() {
+	status_queue, _ := o.Channel.QueueDeclare("status_queue", false, false, false, false, nil)
+	msgs, err := o.Channel.Consume(
+		status_queue.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Error("Failed to consume message: " + err.Error())
+	}
+
+	var forever chan struct{}
+
+	go func() {
+		for d := range msgs {
+			cm, err := serialization.Deserialize[serialization.CalculatingMessage](d.Body)
+			if err != nil {
+				log.Error("Error while deserializing cm: " + err.Error())
+			} else {
+				// TODO: set agent to task
+				err = o.Storage.UpdateTaskAgentID(cm.TaskID, cm.AgentID)
+				if err != nil {
+					log.Error("Error while updating task: " + err.Error())
+				}
+				err = o.Storage.UpdateTaskStatus(cm.TaskID, storage.StatusTaskCalculating)
+				if err != nil {
+					log.Error("Error while updating task: " + err.Error())
+				}
+			}
+		}
+	}()
+
+	<-forever
+}
+
 func (o *Orchestrator) HandleResults() {
 	result_queue, _ := o.Channel.QueueDeclare("result_queue", false, false, false, false, nil)
 	msgs, err := o.Channel.Consume(
@@ -276,7 +315,14 @@ func (o *Orchestrator) HandleResults() {
 				log.Error(err)
 			} else {
 				log.Info("Got message: " + rm.String())
-				err := o.Storage.UpdateTask(rm.ID, rm.Result, rm.Status)
+				// err := o.Storage.UpdateTask(rm.ID, rm.Result, rm.Status)
+				err := o.Storage.UpdateTaskStatus(rm.ID, rm.Status)
+				if err != nil {
+					log.Error("Error while updating task: " + err.Error())
+				} else {
+					log.Info("Successfully updated task: " + rm.ID.String())
+				}
+				err = o.Storage.UpdateTaskResult(rm.ID, rm.Result)
 				if err != nil {
 					log.Error("Error while updating task: " + err.Error())
 				} else {
@@ -324,6 +370,7 @@ func (o *Orchestrator) StartHTTPServer(duration time.Duration) {
 	log.Info("Starting HTTP server...")
 	go o.StartHeartbeatCheck(duration)
 	go o.HandleResults()
+	go o.HandleCalculatingStatuses()
 	http.ListenAndServe(":8080", o.Router)
 }
 
@@ -332,7 +379,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 	id VARCHAR(128) PRIMARY KEY,
 	expression VARCHAR(128),
   result VARCHAR(128),
-	status VARCHAR(128)
+	status VARCHAR(128),
+  agent_id VARCHAR(128)
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -368,10 +416,10 @@ func main() {
 
 	orchestrator := NewOrchestrator(db, ch)
 	orchestrator.Timeouts = map[string]time.Duration{
-		"add": time.Millisecond,
-		"sub": time.Millisecond,
-		"mul": time.Millisecond,
-		"div": time.Millisecond,
+		"add": 30000 * time.Millisecond,
+		"sub": 2000 * time.Millisecond,
+		"mul": 1000 * time.Millisecond,
+		"div": 5000 * time.Millisecond,
 	}
 	if err != nil {
 		log.Fatal(err)

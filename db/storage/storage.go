@@ -8,13 +8,12 @@ import (
 )
 
 var (
-	StatusAgentInactive    = "inactive"
-	StatusAgentActive      = "active"
-	StatusAgentCalculating = "calculating"
-	StatusTaskCompleted    = "completed"
-	StatusTaskCalculating  = "calculating"
-	StatusTaskAccepted     = "accepted"
-	StatusTaskInvalid      = "invalid"
+	StatusAgentInactive   = "inactive"
+	StatusAgentActive     = "active"
+	StatusTaskCompleted   = "completed"
+	StatusTaskCalculating = "calculating"
+	StatusTaskAccepted    = "accepted"
+	StatusTaskInvalid     = "invalid"
 )
 
 type Storage struct {
@@ -32,6 +31,7 @@ type Task struct {
 	Expression string    `db:"expression"`
 	Status     string    `db:"status"`
 	Result     string    `db:"result"`
+	AgentID    uuid.UUID `db:"agent_id"`
 }
 
 func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
@@ -40,6 +40,7 @@ func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
 		Expression: expression,
 		Status:     StatusTaskAccepted,
 		Result:     "",
+		AgentID:    uuid.Nil,
 	}
 	_, err := s.db.Exec(
 		"INSERT INTO tasks (id, expression, status, result) VALUES ($1, $2, $3, $4)",
@@ -54,8 +55,24 @@ func (s *Storage) AddTask(expression string) (uuid.UUID, error) {
 	return task.ID, nil
 }
 
-func (s *Storage) UpdateTask(id uuid.UUID, res, status string) error {
-	_, err := s.db.Exec("UPDATE tasks SET status=$1, result=$2 WHERE id=$3", status, res, id)
+func (s *Storage) UpdateTaskStatus(id uuid.UUID, status string) error {
+	_, err := s.db.Exec("UPDATE tasks SET status=$1 WHERE id=$2", status, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Storage) UpdateTaskResult(id uuid.UUID, res string) error {
+	_, err := s.db.Exec("UPDATE tasks SET result=$1 WHERE id=$2", res, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Storage) UpdateTaskAgentID(taskID uuid.UUID, agentID uuid.UUID) error {
+	_, err := s.db.Exec("UPDATE tasks SET agent_id=$1 WHERE id=$2", agentID, taskID)
 	if err != nil {
 		return err
 	}

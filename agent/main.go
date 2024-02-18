@@ -91,6 +91,7 @@ func (a *Agent) HandleMessages() {
 	go func() {
 		for d := range msgs {
 			tm, err := serialization.Deserialize[serialization.TaskMessage](d.Body)
+			a.publishCalculatingStatus(tm.ID)
 			if err != nil {
 				log.Error(err)
 			} else {
@@ -167,6 +168,29 @@ func (a *Agent) ResolveTask(tm serialization.TaskMessage) (string, error) {
 	}
 	log.Info(tm.Expression + " -> " + tokens[0])
 	return tokens[0], nil
+}
+
+func (a *Agent) publishCalculatingStatus(taskID uuid.UUID) error {
+	status_queue, _ := a.Channel.QueueDeclare("status_queue", false, false, false, false, nil)
+	cm := serialization.CalculatingMessage{
+		AgentID: a.ID,
+		TaskID:  taskID,
+	}
+	serialized, err := serialization.Serialize[serialization.CalculatingMessage](cm)
+	if err != nil {
+		log.Error("Error while serializing task message: " + err.Error())
+	}
+	err = a.Channel.Publish(
+		"",
+		status_queue.Name,
+		false,
+		false,
+		amqp.Publishing{ContentType: "application/json", Body: serialized},
+	)
+	if err != nil {
+		log.Error("Error while publishing status message: " + err.Error())
+	}
+	return nil
 }
 
 func (a *Agent) calculateOperation(exp string, timeout time.Duration) {

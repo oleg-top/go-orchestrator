@@ -38,6 +38,15 @@ func (rm ResultMessage) String() string {
 	return fmt.Sprintf("ID: %s; Result: %s; Status: %s", rm.ID, rm.Result, rm.Status)
 }
 
+type CalculatingMessage struct {
+	AgentID uuid.UUID `json:"agent_id"`
+	TaskID  uuid.UUID `json:"task_id"`
+}
+
+func (cm CalculatingMessage) String() string {
+	return fmt.Sprintf("AgentID: %s; TaskID: %s", cm.AgentID.String(), cm.TaskID.String())
+}
+
 func Serialize[T Message](msg T) ([]byte, error) {
 	var b bytes.Buffer
 	encoder := json.NewEncoder(&b)
