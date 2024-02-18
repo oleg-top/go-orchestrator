@@ -43,3 +43,7 @@ go run agent/main.go
 **Пример**:
 ![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/3cab6c66-9bff-406d-a3ac-88a0ff51fefc)
 
+### ***http://localhost:8080/timeouts*** - При получении *GET* запроса возвращает время выполнения каждой операции
+
+**Пример**:
+![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/be63146a-6551-4af5-93df-01122f4cf3e2)
