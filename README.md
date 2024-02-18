@@ -37,3 +37,9 @@ go run agent/main.go
 
 **Пример**:
 ![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/5d286e1f-fcc4-4f95-a07d-a9491afe6278)
+
+### ***http://localhost:8080/expressions/{id}*** - При получении *GET* запроса возвращает выражение по id
+
+**Пример**:
+![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/3cab6c66-9bff-406d-a3ac-88a0ff51fefc)
+
