@@ -47,3 +47,8 @@ go run agent/main.go
 
 **Пример**:
 ![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/be63146a-6551-4af5-93df-01122f4cf3e2)
+
+### ***http://localhost:8080/timeouts*** - При получении *POST* запроса меняет задержки каждой операции. **Важно!** Не забудьте указать тело запроса, как в примере (время каждой операции задается в миллисекундах).
+
+**Пример**:
+![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/21683d81-813f-4d05-8914-ef0cc2d762d2)
