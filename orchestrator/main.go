@@ -473,7 +473,7 @@ CREATE TABLE IF NOT EXISTS agents (
 
 // Настраивает коннекты и запускает все
 func main() {
-	db, err := sqlx.Connect("sqlite3", "../db/database.db")
+	db, err := sqlx.Connect("sqlite3", "db/database.db")
 	if err != nil {
 		log.Fatal("Failed to connect to sqlite3: ", err)
 		return
