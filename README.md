@@ -52,3 +52,6 @@ go run agent/main.go
 
 **Пример**:
 ![image](https://github.com/oleg-top/go-orchestrator/assets/68245949/21683d81-813f-4d05-8914-ef0cc2d762d2)
+
+## Что-либо не работает?
+Можете написать мне в тг: *@komarik_sasha*
