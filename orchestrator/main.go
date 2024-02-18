@@ -16,26 +16,27 @@ import (
 	"github.com/oleg-top/go-orchestrator/serialization"
 )
 
+// Структура оркестратора
 type Orchestrator struct {
 	Storage  *storage.Storage
 	Channel  *amqp.Channel
 	Router   *mux.Router
 	Timeouts map[string]time.Duration
-	// LastPingTimestamp map[uuid.UUID]time.Time
 }
 
+// Функция создания нового экземпляра оркестратора
 func NewOrchestrator(db *sqlx.DB, ch *amqp.Channel) *Orchestrator {
 	orchestrator := &Orchestrator{
 		Storage: storage.NewStorage(db),
 		Channel: ch,
 		Router:  mux.NewRouter(),
-		// LastPingTimestamp: make(map[uuid.UUID]time.Time),
 	}
 	orchestrator.SetupRoutes()
 
 	return orchestrator
 }
 
+// Настройка всех эндпоинтов
 func (o *Orchestrator) SetupRoutes() {
 	o.Router.HandleFunc("/agents", o.AddAgent).Methods("POST")
 	o.Router.HandleFunc("/agents", o.GetAllAgents).Methods("GET")
@@ -47,6 +48,7 @@ func (o *Orchestrator) SetupRoutes() {
 	o.Router.HandleFunc("/timeouts", o.GetTimeouts).Methods("GET")
 }
 
+// Регистрация агента
 func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 	id, err := o.Storage.AddAgent()
 	if err != nil {
@@ -70,6 +72,7 @@ func (o *Orchestrator) AddAgent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Возвращение списка всех агентов
 func (o *Orchestrator) GetAllAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := o.Storage.GetAllAgents()
 	if err != nil {
@@ -87,6 +90,7 @@ func (o *Orchestrator) GetAllAgents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Обработка пингов агентов
 func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	agentIDStr := mux.Vars(r)["id"]
 	log.Info("Got ping from: " + agentIDStr)
@@ -117,6 +121,7 @@ func (o *Orchestrator) AgentPing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// Добавление выражения
 func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	type Request struct {
 		Expression string `json:"expression"`
@@ -172,6 +177,7 @@ func (o *Orchestrator) AddExpression(w http.ResponseWriter, r *http.Request) {
 	log.Info("Successfully published task message")
 }
 
+// Получение выражения по ID
 func (o *Orchestrator) GetExpressionById(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	validID, err := uuid.Parse(id)
@@ -194,6 +200,7 @@ func (o *Orchestrator) GetExpressionById(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// Получение всех выражений
 func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request) {
 	tasks, err := o.Storage.GetAllTasks()
 	if err != nil {
@@ -214,6 +221,7 @@ func (o *Orchestrator) GetAllExpressions(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// Горутина, которая мониторит состояние всех серверов
 func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
@@ -252,6 +260,7 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	}
 }
 
+// Горутина, которая проверяет, работают ли агенты, на которых считаются выражения
 func (o *Orchestrator) StartTaskStatusCheck(duration time.Duration) {
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
@@ -277,7 +286,6 @@ func (o *Orchestrator) StartTaskStatusCheck(duration time.Duration) {
 					}
 					agent = agents[0]
 					if agent.Status == storage.StatusAgentInactive {
-						// TODO: push task to queue again and change status in db
 						log.Info("Republishing task: " + task.ID.String())
 						q, err := o.Channel.QueueDeclare(
 							"tasks_queue",
@@ -321,6 +329,7 @@ func (o *Orchestrator) StartTaskStatusCheck(duration time.Duration) {
 	}
 }
 
+// Горутина, которая записывает в бд выражению агента, который его считает
 func (o *Orchestrator) HandleCalculatingStatuses() {
 	status_queue, _ := o.Channel.QueueDeclare("status_queue", false, false, false, false, nil)
 	msgs, err := o.Channel.Consume(
@@ -344,7 +353,6 @@ func (o *Orchestrator) HandleCalculatingStatuses() {
 			if err != nil {
 				log.Error("Error while deserializing cm: " + err.Error())
 			} else {
-				// TODO: set agent to task
 				err = o.Storage.UpdateTaskAgentID(cm.TaskID, cm.AgentID)
 				if err != nil {
 					log.Error("Error while updating task: " + err.Error())
@@ -360,6 +368,7 @@ func (o *Orchestrator) HandleCalculatingStatuses() {
 	<-forever
 }
 
+// Горутина, которая принимает все результаты выражений
 func (o *Orchestrator) HandleResults() {
 	result_queue, _ := o.Channel.QueueDeclare("result_queue", false, false, false, false, nil)
 	msgs, err := o.Channel.Consume(
@@ -384,7 +393,6 @@ func (o *Orchestrator) HandleResults() {
 				log.Error(err)
 			} else {
 				log.Info("Got message: " + rm.String())
-				// err := o.Storage.UpdateTask(rm.ID, rm.Result, rm.Status)
 				err := o.Storage.UpdateTaskStatus(rm.ID, rm.Status)
 				if err != nil {
 					log.Error("Error while updating task: " + err.Error())
@@ -404,6 +412,7 @@ func (o *Orchestrator) HandleResults() {
 	<-forever
 }
 
+// Настраивает время выполнения каждой операции
 func (o *Orchestrator) SetTimeouts(w http.ResponseWriter, r *http.Request) {
 	type Request struct {
 		Add int `json:"add"`
@@ -426,6 +435,7 @@ func (o *Orchestrator) SetTimeouts(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// Получает все времени выполнения операций
 func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"add": o.Timeouts["add"].String(),
@@ -435,6 +445,7 @@ func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Запускает оркестратор
 func (o *Orchestrator) StartHTTPServer(heartbeatDuration, statusCheckDuration time.Duration) {
 	log.Info("Starting HTTP server...")
 	go o.StartHeartbeatCheck(heartbeatDuration)
@@ -460,6 +471,7 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 `
 
+// Настраивает коннекты и запускает все
 func main() {
 	db, err := sqlx.Connect("sqlite3", "../db/database.db")
 	if err != nil {

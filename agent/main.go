@@ -19,6 +19,7 @@ import (
 	"github.com/oleg-top/go-orchestrator/serialization"
 )
 
+// Структура агента
 type Agent struct {
 	ID      uuid.UUID
 	Channel *amqp.Channel
@@ -27,10 +28,12 @@ type Agent struct {
 	wg      sync.WaitGroup
 }
 
+// Функция, создающая новый экземпляр агента
 func NewAgent(ch *amqp.Channel) *Agent {
 	return &Agent{Channel: ch, results: make(map[string]string)}
 }
 
+// Функция, отправляющая запрос на оркестратор для регистрации агента
 func (a *Agent) Registrate() error {
 	type Response struct {
 		ID string `json:"id"`
@@ -69,6 +72,7 @@ func (a *Agent) Registrate() error {
 	return nil
 }
 
+// Функция, обрабатывающая все приходящие сообщения
 func (a *Agent) HandleMessages() {
 	tasks_queue, _ := a.Channel.QueueDeclare("tasks_queue", false, false, false, false, nil)
 	result_queue, _ := a.Channel.QueueDeclare("result_queue", false, false, false, false, nil)
@@ -133,6 +137,7 @@ func (a *Agent) HandleMessages() {
 	<-forever
 }
 
+// Функция, запускающая горутины для параллельного вычисления выражения и возвращающая результат
 func (a *Agent) ResolveTask(tm serialization.TaskMessage) (string, error) {
 	r, err := rpn.NewRPN(tm.Expression)
 	if err != nil {
@@ -170,6 +175,7 @@ func (a *Agent) ResolveTask(tm serialization.TaskMessage) (string, error) {
 	return tokens[0], nil
 }
 
+// Функция, которая отправляет оркестратору, что именно этот агент начал считать данное выражение
 func (a *Agent) publishCalculatingStatus(taskID uuid.UUID) error {
 	status_queue, _ := a.Channel.QueueDeclare("status_queue", false, false, false, false, nil)
 	cm := serialization.CalculatingMessage{
@@ -193,6 +199,7 @@ func (a *Agent) publishCalculatingStatus(taskID uuid.UUID) error {
 	return nil
 }
 
+// Функция, которая вычисляет операцию в один знак и ждет заданный таймаут
 func (a *Agent) calculateOperation(exp string, timeout time.Duration) {
 	var res int
 	tokens := strings.Fields(exp)
@@ -217,6 +224,7 @@ func (a *Agent) calculateOperation(exp string, timeout time.Duration) {
 	a.wg.Done()
 }
 
+// Функция, которая отправляет хартбит пинги оркестратору
 func (a *Agent) SendHeartbeat(duration time.Duration) {
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
@@ -243,6 +251,7 @@ func (a *Agent) SendHeartbeat(duration time.Duration) {
 	}
 }
 
+// Настраивает коннекты и запускает все
 func main() {
 	conn, err := amqp.Dial("amqp://defaultuser:defaultpass@localhost:5672/")
 	if err != nil {

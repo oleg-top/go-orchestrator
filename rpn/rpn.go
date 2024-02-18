@@ -7,11 +7,13 @@ import (
 	"strings"
 )
 
+// Структура, хранящая в себе выражение в обычной и обратной польской нотациях
 type RPN struct {
 	SNExpression  string
 	RPNExpression string
 }
 
+// Создает новый экземпляр структуры RPN
 func NewRPN(expression string) (*RPN, error) {
 	rpn := &RPN{}
 	rpn.SNExpression = strings.TrimSpace(expression)
@@ -22,6 +24,7 @@ func NewRPN(expression string) (*RPN, error) {
 	return rpn, nil
 }
 
+// Проверяет выражение на валидность (все равно нужно все символы выражения писать через пробел, кроме отрицательных чисел)
 func (r *RPN) validateExpression() error {
 	nonValid := []string{
 		"- - ", "- +", "- *", "- /",
@@ -57,6 +60,7 @@ func (r *RPN) validateExpression() error {
 	return nil
 }
 
+// Переводит выражение из обычной в обратную польскую нотацию
 func (r *RPN) convertToRPN() error {
 	err := r.validateExpression()
 	if err != nil {
@@ -98,21 +102,24 @@ func (r *RPN) convertToRPN() error {
 	return nil
 }
 
+// Проверяет, является ли символ оператором
 func IsOperator(char rune) bool {
 	return char == '+' || char == '-' || char == '*' || char == '/'
 }
 
+// Проверяет, является ли символ числом
 func IsNumeric(s string) bool {
 	_, err := strconv.ParseFloat(s, 64)
 	return err == nil
 }
 
-func main() {
-	expression := "1 - 3 * 2"
-	rpn, err := NewRPN(expression)
-	if err != nil {
-		fmt.Println(err.Error())
-	} else {
-		fmt.Println(rpn.RPNExpression)
-	}
-}
+// Использовал для тестирования структуры
+// func main() {
+//	expression := "1 - 3 * 2"
+//	rpn, err := NewRPN(expression)
+//	if err != nil {
+//		fmt.Println(err.Error())
+//	} else {
+//		fmt.Println(rpn.RPNExpression)
+//	}
+//}
