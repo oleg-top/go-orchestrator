@@ -252,6 +252,75 @@ func (o *Orchestrator) StartHeartbeatCheck(duration time.Duration) {
 	}
 }
 
+func (o *Orchestrator) StartTaskStatusCheck(duration time.Duration) {
+	ticker := time.NewTicker(duration)
+	defer ticker.Stop()
+
+	var tasks []storage.Task
+	var agents []storage.Agent
+	var agent storage.Agent
+	var err error
+
+	for {
+		select {
+		case <-ticker.C:
+			tasks, err = o.Storage.GetAllTasks()
+			if err != nil {
+				log.Error("Error while getting all tasks for status check: " + err.Error())
+			}
+			for _, task := range tasks {
+				if task.Status == storage.StatusTaskCalculating {
+					log.Info("Found calculating task")
+					agents, err = o.Storage.GetAgentById(task.AgentID)
+					if err != nil {
+						log.Error("Error while getting agent by id: " + err.Error())
+					}
+					agent = agents[0]
+					if agent.Status == storage.StatusAgentInactive {
+						// TODO: push task to queue again and change status in db
+						log.Info("Republishing task: " + task.ID.String())
+						q, err := o.Channel.QueueDeclare(
+							"tasks_queue",
+							false,
+							false,
+							false,
+							false,
+							nil,
+						)
+						if err != nil {
+							log.Error("Error while encoding json: " + err.Error())
+						}
+						tm := serialization.TaskMessage{
+							ID:         task.ID,
+							Expression: task.Expression,
+							Timeouts:   o.Timeouts,
+						}
+						serialized, err := serialization.Serialize[serialization.TaskMessage](tm)
+						if err != nil {
+							log.Error("Error while serializing task message: " + err.Error())
+						}
+						err = o.Channel.Publish(
+							"",
+							q.Name,
+							false,
+							false,
+							amqp.Publishing{ContentType: "application/json", Body: serialized},
+						)
+						if err != nil {
+							log.Error("Error while publishing task message: " + err.Error())
+						}
+						err = o.Storage.UpdateTaskStatus(task.ID, storage.StatusTaskRepublished)
+						if err != nil {
+							log.Error("Error while updating task status: " + err.Error())
+						}
+						log.Info("Successfully republished task: " + task.ID.String())
+					}
+				}
+			}
+		}
+	}
+}
+
 func (o *Orchestrator) HandleCalculatingStatuses() {
 	status_queue, _ := o.Channel.QueueDeclare("status_queue", false, false, false, false, nil)
 	msgs, err := o.Channel.Consume(
@@ -366,11 +435,12 @@ func (o *Orchestrator) GetTimeouts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (o *Orchestrator) StartHTTPServer(duration time.Duration) {
+func (o *Orchestrator) StartHTTPServer(heartbeatDuration, statusCheckDuration time.Duration) {
 	log.Info("Starting HTTP server...")
-	go o.StartHeartbeatCheck(duration)
+	go o.StartHeartbeatCheck(heartbeatDuration)
 	go o.HandleResults()
 	go o.HandleCalculatingStatuses()
+	go o.StartTaskStatusCheck(statusCheckDuration)
 	http.ListenAndServe(":8080", o.Router)
 }
 
@@ -426,5 +496,5 @@ func main() {
 		return
 	}
 
-	orchestrator.StartHTTPServer(30 * time.Second)
+	orchestrator.StartHTTPServer(30*time.Second, 3*time.Second)
 }

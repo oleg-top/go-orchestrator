@@ -14,6 +14,7 @@ var (
 	StatusTaskCalculating = "calculating"
 	StatusTaskAccepted    = "accepted"
 	StatusTaskInvalid     = "invalid"
+	StatusTaskRepublished = "republished"
 )
 
 type Storage struct {
@@ -103,7 +104,6 @@ func (s *Storage) AddAgent() (uuid.UUID, error) {
 		Status:     StatusAgentActive,
 		LastOnline: time.Now().Format(time.RFC1123Z),
 	}
-	// time format is yyyy-MM-dd HH:mm:ss
 
 	_, err := s.db.Exec(
 		"INSERT INTO agents (id, status, last_online) VALUES ($1, $2, $3)",
@@ -115,6 +115,15 @@ func (s *Storage) AddAgent() (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return agent.ID, nil
+}
+
+func (s *Storage) GetAgentById(id uuid.UUID) ([]Agent, error) {
+	var agents []Agent
+	err := s.db.Select(&agents, "SELECT * FROM agents WHERE id=$1", id)
+	if err != nil {
+		return nil, err
+	}
+	return agents, nil
 }
 
 func (s *Storage) GetAllAgents() ([]Agent, error) {
